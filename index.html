@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>QRコードをスキャン</title>
+  <meta name="theme-color" content="#000000">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", Arial, "Helvetica Neue", sans-serif; margin: 16px; }
+    .wrap { max-width: 680px; margin: 0 auto; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .user { display:flex; align-items:center; gap:10px; }
+    .avatar { width:32px; height:32px; border-radius:50%; background:#eee; }
+    video { width: 100%; border-radius: 12px; background: #000; }
+    .btns { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+    button, .btn {
+      padding: 10px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .card { padding:16px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
+    .out { margin-top: 12px; padding: 12px; border-radius: 10px; background: #f6f7f9; word-break: break-all; }
+    .hint { color: #666; font-size: 14px; }
+    input[type=file] { display: none; }
+    label[for=upload] { padding: 10px 14px; border-radius: 10px; border: 1px solid #ddd; background: #fff; cursor: pointer; }
+    .hidden { display:none !important; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1 style="margin:0;">QRコードをスキャン</h1>
+    <div class="user">
+      <img id="avatar" class="avatar hidden" alt="">
+      <span id="who" class="hidden"></span>
+      <button id="loginBtn">Googleでログイン</button>
+      <button id="logoutBtn" class="hidden">ログアウト</button>
+    </div>
+  </header>
+
+  <div class="hint">ヒント：HTTPSまたはlocalhostで開いてください。iOSはSafari、AndroidはChromeを推奨します。</div>
+
+  <!-- 未ログイン時 -->
+  <div id="authGate" class="card">
+    <p style="margin:0 0 8px;">スキャン機能を利用するにはログインが必要です。</p>
+    <button id="loginBtn2" class="btn">Googleでログイン</button>
+  </div>
+
+  <!-- ログイン済み表示 -->
+  <div id="app" class="hidden">
+    <div class="btns">
+      <button id="startBtn">カメラを起動してスキャン</button>
+      <button id="stopBtn" disabled>カメラを停止</button>
+      <label for="upload">または画像から読み取る</label>
+      <input id="upload" type="file" accept="image/*" capture="environment">
+    </div>
+
+    <video id="preview" muted playsinline></video>
+    <div class="out" id="result">結果はここに表示されます</div>
+  </div>
+</div>
+
+<!-- Firebase + ZXing -->
+<script type="module">
+/* ===== Firebase SDK ===== */
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithRedirect, signOut } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+
+/* === あなたの Firebase 設定 === */
+const firebaseConfig = {
+  apiKey: "AIzaSyB2SQ6OeCvjGZL-YNTfAoBM0MgLb9xNezM",
+  authDomain: "meguromap-ef1e6.firebaseapp.com",
+  projectId: "meguromap-ef1e6",
+  storageBucket: "meguromap-ef1e6.firebasestorage.app",
+  messagingSenderId: "376713797835",
+  appId: "1:376713797835:web:294d2b72db9b764851fb4e",
+  measurementId: "G-5DN1G5GPFP"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+auth.languageCode = 'ja';
+const provider = new GoogleAuthProvider();
+
+/* ===== ZXing (QRコードライブラリ) ===== */
+import { BrowserMultiFormatReader } from "https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/+esm";
+import { NotFoundException } from "https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/+esm";
+
+/* ===== DOM 要素 ===== */
+const loginBtn  = document.getElementById('loginBtn');
+const loginBtn2 = document.getElementById('loginBtn2');
+const logoutBtn = document.getElementById('logoutBtn');
+const authGate  = document.getElementById('authGate');
+const appEl     = document.getElementById('app');
+const whoEl     = document.getElementById('who');
+const avatarEl  = document.getElementById('avatar');
+const startBtn = document.getElementById('startBtn');
+const stopBtn  = document.getElementById('stopBtn');
+const upload   = document.getElementById('upload');
+const videoEl  = document.getElementById('preview');
+const resultEl = document.getElementById('result');
+
+/* ===== ログイン・ログアウト ===== */
+const login = () => signInWithRedirect(auth, provider);
+const logout = () => signOut(auth);
+
+loginBtn.onclick = login;
+loginBtn2.onclick = login;
+logoutBtn.onclick = logout;
+
+/* ===== 認証状態によるUI制御 ===== */
+onAuthStateChanged(auth, (user) => {
+  const signedIn = !!user;
+  authGate.classList.toggle('hidden', signedIn);
+  appEl.classList.toggle('hidden', !signedIn);
+  logoutBtn.classList.toggle('hidden', !signedIn);
+  if (signedIn) {
+    loginBtn.classList.add('hidden');
+    whoEl.classList.remove('hidden');
+    avatarEl.classList.remove('hidden');
+    whoEl.textContent = user.displayName || user.email || 'ログイン中';
+    if (user.photoURL) { avatarEl.src = user.photoURL; avatarEl.alt = whoEl.textContent; }
+  } else {
+    loginBtn.classList.remove('hidden');
+    whoEl.classList.add('hidden');
+    avatarEl.classList.add('hidden');
+    stopScan();
+  }
+});
+
+/* ===== QRスキャン機能 ===== */
+let controls = null;
+let reader   = null;
+
+function show(text) { resultEl.textContent = text; }
+
+function linkify(text) {
+  try { const url = new URL(text); return `<a href="${url.href}" target="_blank" rel="noopener noreferrer">${url.href}</a>`; }
+  catch { return text; }
+}
+
+async function startScan() {
+  if (controls) return;
+  reader = reader || new BrowserMultiFormatReader();
+  startBtn.disabled = true;
+  show("カメラを起動しています… カメラの使用を許可してください。");
+  try {
+    controls = await reader.decodeFromVideoDevice(
+      null, videoEl,
+      (result, err) => {
+        if (result) {
+          const text = result.getText();
+          resultEl.innerHTML = "✔ 読み取り成功：<br>" + linkify(text);
+          stopScan();
+        } else if (err && !(err instanceof NotFoundException)) {
+          console.warn(err);
+        }
+      }
+    );
+    stopBtn.disabled = false;
+    show("カメラが起動しました。QRコードを枠内に合わせてください。");
+  } catch (e) {
+    console.error(e);
+    show("❌ カメラを起動できませんでした。HTTPS環境や権限設定をご確認ください。\nエラー：" + e);
+    startBtn.disabled = false;
+  }
+}
+
+function stopScan() {
+  try { controls?.stop(); } catch {}
+  controls = null;
+  stopBtn.disabled = true;
+  startBtn.disabled = false;
+}
+
+startBtn.addEventListener('click', startScan);
+stopBtn.addEventListener('click', stopScan);
+
+upload.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  show("画像を読み込んでいます…");
+  const url = URL.createObjectURL(file);
+  try {
+    reader = reader || new BrowserMultiFormatReader();
+    const res = await reader.decodeFromImageUrl(url);
+    resultEl.innerHTML = "✔ 読み取り成功：<br>" + linkify(res.getText());
+  } catch (err) {
+    console.error(err);
+    show("❌ QRコードの認識に失敗しました。もう少し鮮明な画像をお試しください。");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+});
+
+window.addEventListener('pagehide', stopScan);
+window.addEventListener('beforeunload', stopScan);
+</script>
+
+<script>
+if ('BarcodeDetector' in window) {
+  console.log('このデバイスは BarcodeDetector をサポートしています。');
+}
+</script>
+</body>
+</html>
